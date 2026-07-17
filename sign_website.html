@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Sign Language Detector</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Segoe UI',sans-serif;background:#0f0f1a;color:#fff;min-height:100vh}
+
+  header{background:#1a1a2e;padding:18px 30px;display:flex;align-items:center;gap:14px;border-bottom:2px solid #7c3aed}
+  header h1{font-size:1.5rem;font-weight:700;color:#a78bfa}
+  header span{font-size:1.6rem}
+
+  .tabs{display:flex;gap:0;background:#12122a;border-bottom:2px solid #2d2d50}
+  .tab{padding:14px 32px;cursor:pointer;font-size:.95rem;font-weight:600;color:#888;border-bottom:3px solid transparent;transition:.2s}
+  .tab.active{color:#a78bfa;border-bottom-color:#7c3aed;background:#1a1a2e}
+  .tab:hover:not(.active){color:#ccc}
+
+  .page{display:none;padding:28px 30px;max-width:960px;margin:0 auto}
+  .page.active{display:block}
+
+  /* ── Collect ── */
+  .collect-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px}
+  .gesture-card{background:#1e1e35;border:2px solid #2d2d50;border-radius:12px;padding:18px;text-align:center;cursor:pointer;transition:.2s}
+  .gesture-card:hover{border-color:#7c3aed;background:#25253d}
+  .gesture-card.selected{border-color:#7c3aed;background:#2d1f4e}
+  .gesture-card .emoji{font-size:2.4rem;margin-bottom:8px}
+  .gesture-card h3{font-size:1rem;color:#a78bfa}
+  .gesture-card .count{font-size:.8rem;color:#666;margin-top:4px}
+
+  .cam-box{position:relative;background:#000;border-radius:12px;overflow:hidden;margin-bottom:16px}
+  .cam-box video,.cam-box canvas{width:100%;display:block;border-radius:12px}
+  .cam-box canvas{position:absolute;top:0;left:0}
+  #collect-label{position:absolute;top:12px;left:12px;background:rgba(124,58,237,.85);padding:6px 14px;border-radius:20px;font-weight:700;font-size:1rem}
+  #progress-bar-wrap{height:8px;background:#2d2d50;border-radius:4px;margin-bottom:16px;overflow:hidden}
+  #progress-bar{height:100%;background:linear-gradient(90deg,#7c3aed,#a78bfa);width:0%;transition:.15s}
+
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:11px 24px;border:none;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;transition:.2s}
+  .btn-primary{background:#7c3aed;color:#fff}.btn-primary:hover{background:#6d28d9}
+  .btn-danger{background:#dc2626;color:#fff}.btn-danger:hover{background:#b91c1c}
+  .btn-success{background:#059669;color:#fff}.btn-success:hover{background:#047857}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+
+  /* ── Train ── */
+  .info-box{background:#1e1e35;border:1px solid #2d2d50;border-radius:10px;padding:18px;margin-bottom:20px}
+  .info-box h3{color:#a78bfa;margin-bottom:10px;font-size:1rem}
+  .sample-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #2d2d50}
+  .sample-row:last-child{border:none}
+  .pill{padding:3px 10px;border-radius:20px;font-size:.78rem;font-weight:600}
+  .pill.ok{background:#064e3b;color:#6ee7b7}
+  .pill.warn{background:#78350f;color:#fcd34d}
+  #train-log{background:#0d0d1a;border:1px solid #2d2d50;border-radius:8px;padding:14px;height:160px;overflow-y:auto;font-family:monospace;font-size:.82rem;color:#86efac;margin:14px 0}
+  #accuracy-display{font-size:2.4rem;font-weight:800;color:#a78bfa;text-align:center;margin:10px 0}
+
+  /* ── Detect ── */
+  #detect-label{position:absolute;top:12px;left:12px;background:rgba(5,150,105,.9);padding:8px 20px;border-radius:20px;font-weight:800;font-size:1.3rem;letter-spacing:1px}
+  #confidence-bar-wrap{height:6px;background:#2d2d50;border-radius:4px;margin:10px 0 16px;overflow:hidden}
+  #confidence-bar{height:100%;background:linear-gradient(90deg,#059669,#6ee7b7);width:0%;transition:.1s}
+  .history-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .history-chip{background:#1e1e35;border:1px solid #2d2d50;border-radius:20px;padding:5px 14px;font-size:.85rem;color:#a78bfa}
+
+  /* ── Shared ── */
+  .row{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
+  .status{font-size:.82rem;color:#888;margin-top:6px}
+  .section-title{font-size:1.1rem;font-weight:700;color:#a78bfa;margin-bottom:14px}
+</style>
+</head>
+<body>
+
+<header>
+  <span>🤟</span>
+  <h1>Sign Language Detector</h1>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('collect')">1 · Collect Data</div>
+  <div class="tab" onclick="switchTab('train')">2 · Train Model</div>
+  <div class="tab" onclick="switchTab('detect')">3 · Detect</div>
+</div>
+
+<!-- ═══════════════ COLLECT ═══════════════ -->
+<div id="page-collect" class="page active">
+  <p class="status" style="margin-bottom:18px">Select a gesture, then click <b>Start Collecting</b>. Show your hand clearly in the camera. 100 samples per gesture needed.</p>
+
+  <div class="collect-grid">
+    <div class="gesture-card selected" onclick="selectGesture('HELLO',this)">
+      <div class="emoji">👋</div><h3>HELLO</h3>
+      <div class="count" id="cnt-HELLO">0 / 100</div>
+    </div>
+    <div class="gesture-card" onclick="selectGesture('YES',this)">
+      <div class="emoji">👍</div><h3>YES</h3>
+      <div class="count" id="cnt-YES">0 / 100</div>
+    </div>
+    <div class="gesture-card" onclick="selectGesture('NO',this)">
+      <div class="emoji">👎</div><h3>NO</h3>
+      <div class="count" id="cnt-NO">0 / 100</div>
+    </div>
+  </div>
+
+  <div class="cam-box" style="max-width:580px">
+    <video id="collect-video" autoplay playsinline muted></video>
+    <canvas id="collect-canvas"></canvas>
+    <div id="collect-label">SELECT GESTURE</div>
+  </div>
+
+  <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+
+  <div class="row">
+    <button class="btn btn-primary" id="btn-start-collect" onclick="startCollecting()">▶ Start Collecting</button>
+    <button class="btn btn-danger"  id="btn-stop-collect"  onclick="stopCollecting()" disabled>■ Stop</button>
+    <button class="btn btn-success" onclick="switchTab('train')" style="margin-left:auto">Next: Train →</button>
+  </div>
+  <p class="status" id="collect-status">Camera will start automatically.</p>
+</div>
+
+<!-- ═══════════════ TRAIN ═══════════════ -->
+<div id="page-train" class="page">
+  <div class="info-box">
+    <h3>📊 Collected Samples</h3>
+    <div class="sample-row"><span>HELLO 👋</span><span id="tr-cnt-HELLO">—</span></div>
+    <div class="sample-row"><span>YES 👍</span><span id="tr-cnt-YES">—</span></div>
+    <div class="sample-row"><span>NO 👎</span><span id="tr-cnt-NO">—</span></div>
+  </div>
+
+  <div class="section-title">Training Log</div>
+  <div id="train-log">Waiting to start training…</div>
+  <div id="accuracy-display"></div>
+
+  <div class="row">
+    <button class="btn btn-primary" id="btn-train" onclick="trainModel()">⚡ Train Model</button>
+    <button class="btn btn-success" id="btn-go-detect" onclick="switchTab('detect')" disabled>Next: Detect →</button>
+  </div>
+  <p class="status" id="train-status"></p>
+</div>
+
+<!-- ═══════════════ DETECT ═══════════════ -->
+<div id="page-detect" class="page">
+  <p class="status" style="margin-bottom:16px">Show your hand — the model will predict your gesture in real time.</p>
+
+  <div class="cam-box" style="max-width:580px">
+    <video id="detect-video" autoplay playsinline muted></video>
+    <canvas id="detect-canvas"></canvas>
+    <div id="detect-label">WAITING…</div>
+  </div>
+
+  <div id="confidence-bar-wrap"><div id="confidence-bar"></div></div>
+
+  <div class="row">
+    <button class="btn btn-primary" id="btn-start-detect" onclick="startDetecting()">▶ Start Detection</button>
+    <button class="btn btn-danger"  id="btn-stop-detect"  onclick="stopDetecting()" disabled>■ Stop</button>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-left:auto">
+      <input type="checkbox" id="tts-toggle" checked style="width:16px;height:16px"> 🔊 Voice
+    </label>
+  </div>
+
+  <div style="margin-top:18px">
+    <div class="section-title">Detection History</div>
+    <div class="history-list" id="history-list"></div>
+  </div>
+</div>
+
+<!-- MediaPipe CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  GLOBALS
+// ═══════════════════════════════════════════════════════════
+const GESTURES    = ["HELLO","YES","NO"];
+const SAMPLES_REQ = 100;
+const gestureData = {HELLO:[],YES:[],NO:[]};
+
+let currentGesture   = "HELLO";
+let collecting       = false;
+let mpHands          = null;
+let collectCamera    = null;
+let detectCamera     = null;
+let model            = null;        // tiny JS neural net
+let lastGesture      = null;
+let lastSpeakTime    = 0;
+
+// ═══════════════════════════════════════════════════════════
+//  TABS
+// ═══════════════════════════════════════════════════════════
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach((t,i)=>{
+    t.classList.toggle('active', ['collect','train','detect'][i]===name)
+  });
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  if(name==='train') refreshTrainCounts();
+  if(name==='detect') initDetectCam();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MEDIAPIPE HANDS — shared instance
+// ═══════════════════════════════════════════════════════════
+function buildHands(onResults){
+  const h = new Hands({locateFile: f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+  h.setOptions({maxNumHands:1, modelComplexity:1,
+    minDetectionConfidence:.7, minTrackingConfidence:.7});
+  h.onResults(onResults);
+  return h;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  COLLECT PAGE
+// ═══════════════════════════════════════════════════════════
+function selectGesture(name, el){
+  currentGesture = name;
+  document.querySelectorAll('.gesture-card').forEach(c=>c.classList.remove('selected'));
+  el.classList.add('selected');
+  document.getElementById('collect-label').textContent = name;
+}
+
+async function startCollecting(){
+  if(collecting) return;
+  collecting = true;
+  document.getElementById('btn-start-collect').disabled = true;
+  document.getElementById('btn-stop-collect').disabled  = false;
+  document.getElementById('collect-status').textContent = `Collecting ${currentGesture}…`;
+
+  const video  = document.getElementById('collect-video');
+  const canvas = document.getElementById('collect-canvas');
+  const ctx    = canvas.getContext('2d');
+
+  mpHands = buildHands(results=>{
+    if(!collecting) return;
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    if(results.multiHandLandmarks && results.multiHandLandmarks.length){
+      const lms = results.multiHandLandmarks[0];
+      drawConnectors(ctx, lms, HAND_CONNECTIONS, {color:'#a78bfa',lineWidth:2});
+      drawLandmarks(ctx, lms, {color:'#fff',radius:3});
+
+      const arr = lms.flatMap(l=>[l.x,l.y,l.z]);
+      const cnt = gestureData[currentGesture].length;
+
+      if(cnt < SAMPLES_REQ){
+        gestureData[currentGesture].push(arr);
+        const n = cnt+1;
+        document.getElementById(`cnt-${currentGesture}`).textContent = `${n} / ${SAMPLES_REQ}`;
+        document.getElementById('progress-bar').style.width = (n/SAMPLES_REQ*100)+'%';
+        if(n >= SAMPLES_REQ) stopCollecting();
+      }
+    }
+  });
+
+  collectCamera = new Camera(video,{
+    onFrame: async()=>{ await mpHands.send({image:video}) },
+    width:640, height:480
+  });
+  await collectCamera.start();
+}
+
+function stopCollecting(){
+  collecting = false;
+  document.getElementById('btn-start-collect').disabled = false;
+  document.getElementById('btn-stop-collect').disabled  = true;
+  const cnt = gestureData[currentGesture].length;
+  document.getElementById('collect-status').textContent =
+    `Stopped. ${currentGesture}: ${cnt} samples saved.`;
+  if(collectCamera){ collectCamera.stop(); collectCamera=null; }
+  if(mpHands){ mpHands.close(); mpHands=null; }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TRAIN PAGE
+// ═══════════════════════════════════════════════════════════
+function refreshTrainCounts(){
+  GESTURES.forEach(g=>{
+    const n = gestureData[g].length;
+    const el = document.getElementById('tr-cnt-'+g);
+    el.innerHTML = `<span class="pill ${n>=SAMPLES_REQ?'ok':'warn'}">${n} samples</span>`;
+  });
+}
+
+// ── Tiny neural net in pure JS ────────────────────────────
+//  Architecture: 63 → ReLU → 128 → ReLU → 64 → softmax → 3
+class Net {
+  constructor(){
+    this.W1 = randMat(128,63); this.b1 = zeros(128);
+    this.W2 = randMat(64,128); this.b2 = zeros(64);
+    this.W3 = randMat(3,64);   this.b3 = zeros(3);
+  }
+  forward(x){
+    this.x0  = x;
+    this.z1  = addBias(matVec(this.W1,x), this.b1);
+    this.a1  = relu(this.z1);
+    this.z2  = addBias(matVec(this.W2,this.a1), this.b2);
+    this.a2  = relu(this.z2);
+    this.z3  = addBias(matVec(this.W3,this.a2), this.b3);
+    this.out = softmax(this.z3);
+    return this.out;
+  }
+  backward(label, lr){
+    // dL/dz3
+    const dz3 = [...this.out];
+    dz3[label] -= 1;
+
+    // Layer 3
+    for(let i=0;i<3;i++){
+      this.b3[i] -= lr*dz3[i];
+      for(let j=0;j<64;j++) this.W3[i][j] -= lr*dz3[i]*this.a2[j];
+    }
+    // da2
+    const da2 = zeros(64);
+    for(let j=0;j<64;j++) for(let i=0;i<3;i++) da2[j]+=this.W3[i][j]*dz3[i];
+    const dz2 = da2.map((v,i)=>v*(this.z2[i]>0?1:0));
+
+    // Layer 2
+    for(let i=0;i<64;i++){
+      this.b2[i] -= lr*dz2[i];
+      for(let j=0;j<128;j++) this.W2[i][j] -= lr*dz2[i]*this.a1[j];
+    }
+    // da1
+    const da1 = zeros(128);
+    for(let j=0;j<128;j++) for(let i=0;i<64;i++) da1[j]+=this.W2[i][j]*dz2[i];
+    const dz1 = da1.map((v,i)=>v*(this.z1[i]>0?1:0));
+
+    // Layer 1
+    for(let i=0;i<128;i++){
+      this.b1[i] -= lr*dz1[i];
+      for(let j=0;j<63;j++) this.W1[i][j] -= lr*dz1[i]*this.x0[j];
+    }
+  }
+}
+
+// ── Math helpers ──────────────────────────────────────────
+function zeros(n){ return new Array(n).fill(0) }
+function randMat(r,c){ return Array.from({length:r},()=>Array.from({length:c},()=>(Math.random()-.5)*Math.sqrt(2/c))) }
+function matVec(W,x){ return W.map(row=>row.reduce((s,w,j)=>s+w*x[j],0)) }
+function addBias(v,b){ return v.map((x,i)=>x+b[i]) }
+function relu(v){ return v.map(x=>Math.max(0,x)) }
+function softmax(v){ const e=v.map(x=>Math.exp(x-Math.max(...v))); const s=e.reduce((a,b)=>a+b); return e.map(x=>x/s) }
+function argmax(v){ return v.indexOf(Math.max(...v)) }
+
+async function trainModel(){
+  const log = document.getElementById('train-log');
+  const btn = document.getElementById('btn-train');
+  btn.disabled = true;
+  log.textContent = '';
+
+  function addLog(msg){ log.textContent += msg+'\n'; log.scrollTop=9999; }
+
+  // Build dataset
+  let Xall=[], yall=[];
+  for(let label=0;label<3;label++){
+    const g = GESTURES[label];
+    if(gestureData[g].length < 10){
+      addLog(`⚠️  Not enough samples for ${g} (${gestureData[g].length}). Collect at least 10.`);
+      btn.disabled=false; return;
+    }
+    gestureData[g].forEach(x=>{ Xall.push(x); yall.push(label); });
+  }
+
+  // Shuffle
+  const idx = Xall.map((_,i)=>i).sort(()=>Math.random()-.5);
+  Xall = idx.map(i=>Xall[i]); yall = idx.map(i=>yall[i]);
+
+  const split   = Math.floor(Xall.length*.8);
+  const Xtrain  = Xall.slice(0,split), ytrain = yall.slice(0,split);
+  const Xtest   = Xall.slice(split),   ytest  = yall.slice(split);
+
+  addLog(`✅ Dataset: ${Xall.length} samples  |  Train: ${Xtrain.length}  Test: ${Xtest.length}`);
+
+  model = new Net();
+  const EPOCHS = 40, LR_START = 0.01;
+
+  for(let ep=0; ep<EPOCHS; ep++){
+    // Decay LR
+    const lr = LR_START * Math.pow(0.95, ep);
+    let loss = 0;
+
+    // Shuffle train
+    const ti = Xtrain.map((_,i)=>i).sort(()=>Math.random()-.5);
+
+    for(const i of ti){
+      const out  = model.forward(Xtrain[i]);
+      loss      -= Math.log(out[ytrain[i]]+1e-9);
+      model.backward(ytrain[i], lr);
+    }
+
+    if((ep+1)%8===0 || ep===0){
+      addLog(`Epoch ${String(ep+1).padStart(2,'0')}/${EPOCHS}  Loss: ${(loss/Xtrain.length).toFixed(4)}`);
+      await new Promise(r=>setTimeout(r,0)); // yield to UI
+    }
+  }
+
+  // Accuracy
+  let correct=0;
+  for(let i=0;i<Xtest.length;i++){
+    const pred = argmax(model.forward(Xtest[i]));
+    if(pred===ytest[i]) correct++;
+  }
+  const acc = (correct/Xtest.length*100).toFixed(1);
+  addLog(`\n✅ Test Accuracy: ${acc}%`);
+  document.getElementById('accuracy-display').textContent = acc+'%';
+  document.getElementById('train-status').textContent = 'Model ready!';
+  document.getElementById('btn-go-detect').disabled = false;
+  btn.disabled = false;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DETECT PAGE
+// ═══════════════════════════════════════════════════════════
+let detectMpHands = null;
+let detectActive  = false;
+
+async function initDetectCam(){
+  // Just warm up the video element; actual start is on button click
+}
+
+async function startDetecting(){
+  if(!model){ alert('Please train the model first (Step 2).'); return; }
+  detectActive = true;
+  document.getElementById('btn-start-detect').disabled = true;
+  document.getElementById('btn-stop-detect').disabled  = false;
+
+  const video  = document.getElementById('detect-video');
+  const canvas = document.getElementById('detect-canvas');
+  const ctx    = canvas.getContext('2d');
+  const label  = document.getElementById('detect-label');
+
+  detectMpHands = buildHands(results=>{
+    if(!detectActive) return;
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    if(results.multiHandLandmarks && results.multiHandLandmarks.length){
+      const lms = results.multiHandLandmarks[0];
+      drawConnectors(ctx, lms, HAND_CONNECTIONS, {color:'#6ee7b7',lineWidth:2});
+      drawLandmarks(ctx, lms, {color:'#fff',radius:3});
+
+      const arr  = lms.flatMap(l=>[l.x,l.y,l.z]);
+      const probs = model.forward(arr);
+      const pred  = argmax(probs);
+      const conf  = (probs[pred]*100).toFixed(0);
+      const gname = GESTURES[pred];
+
+      label.textContent = `${gname}  ${conf}%`;
+      document.getElementById('confidence-bar').style.width = conf+'%';
+
+      const now = Date.now();
+      if(gname !== lastGesture && now-lastSpeakTime > 2000){
+        lastGesture    = gname;
+        lastSpeakTime  = now;
+        addHistory(gname);
+        if(document.getElementById('tts-toggle').checked) speakText(gname);
+      }
+    } else {
+      label.textContent = 'No hand';
+      document.getElementById('confidence-bar').style.width = '0%';
+    }
+  });
+
+  detectCamera = new Camera(video,{
+    onFrame: async()=>{ await detectMpHands.send({image:video}) },
+    width:640, height:480
+  });
+  await detectCamera.start();
+}
+
+function stopDetecting(){
+  detectActive = false;
+  document.getElementById('btn-start-detect').disabled = false;
+  document.getElementById('btn-stop-detect').disabled  = true;
+  if(detectCamera){ detectCamera.stop(); detectCamera=null; }
+  if(detectMpHands){ detectMpHands.close(); detectMpHands=null; }
+  document.getElementById('detect-label').textContent = 'STOPPED';
+}
+
+function addHistory(name){
+  const list = document.getElementById('history-list');
+  const chip = document.createElement('div');
+  chip.className = 'history-chip';
+  chip.textContent = name + ' · ' + new Date().toLocaleTimeString();
+  list.prepend(chip);
+  if(list.children.length > 12) list.removeChild(list.lastChild);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TTS — Web Speech API
+// ═══════════════════════════════════════════════════════════
+function speakText(text){
+  if(!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.9; u.pitch = 1;
+  window.speechSynthesis.speak(u);
+}
+</script>
+</body>
+</html>
